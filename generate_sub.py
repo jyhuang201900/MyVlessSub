@@ -1,7 +1,7 @@
 import requests
 import base64
 import re
-from urllib.parse import quote, urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, quote
 from bs4 import BeautifulSoup
 
 # --- 配置区 ---
@@ -9,13 +9,13 @@ TEMPLATE_FILE = "vless_template.txt"
 DOMAINS_FILE = "domains.txt"
 OUTPUT_FILE = "sub.txt"
 
-# 1. 原始的远程优选IP源 (来自代码2)
+# 1. 原始的远程优选IP源
 REMOTE_IP_URL_1 = "https://raw.githubusercontent.com/barry-far/V2ray-Configs/main/All_IPs_port_443.txt"
 
-# 2. 新增的动态IP源 (来自代码1)
+# 2. 新增的动态IP源
 DYNAMIC_IP_URL = "https://stock.hostmonit.com/CloudFlareYes"
 
-# 3. 新增的GitHub优选IP源 (来自代码1)
+# 3. 新增的GitHub优选IP源
 GITHUB_IP_URL = "https://raw.githubusercontent.com/qwer-search/bestip/refs/heads/main/kejilandbestip.txt"
 # --- 配置区结束 ---
 
@@ -34,13 +34,14 @@ def parse_template(template_file):
 
         VLESS_CONFIG = {
             "uuid": parsed.username,
-            "host": params.get('host', [''])[0],
-            "path": params.get('path', [''])[0],
-            "sni": params.get('sni', [''])[0]
+            "host": params.get('host', [None])[0],
+            "path": params.get('path', [None])[0],
+            "sni": params.get('sni', [None])[0]
         }
         
-        if not all(VLESS_CONFIG.values()):
-            print("❌ 模板文件解析不完整，请检查模板格式！")
+        # UUID 是必须的，否则无法生成链接
+        if not VLESS_CONFIG["uuid"]:
+            print("❌ 模板文件错误: 未能解析出 UUID。")
             return False
         
         print("✅ VLESS模板解析成功！")
@@ -59,22 +60,39 @@ def generate_vless_url(address_info):
     protocol_type = address_info.get("protocol", "TLS")
     name_suffix = address_info.get("name", addr)
 
-    base_url = f"vless://{VLESS_CONFIG['uuid']}@{addr}:{port}?"
+    # 从全局配置中安全地获取值，如果不存在则使用默认值
+    uuid = VLESS_CONFIG.get("uuid")
+    ws_host = VLESS_CONFIG.get("host")
+    ws_path = VLESS_CONFIG.get("path", "/") # 如果路径不存在，默认为 "/"
+    sni = VLESS_CONFIG.get("sni")
+
+    # 核心参数检查
+    if not uuid:
+        # 这个情况基本不会发生，因为 parse_template 会先检查
+        print(f"⚠️ 警告: UUID为空，跳过节点 {addr}")
+        return None
+
+    params = { "encryption": "none", "type": "ws" }
     
-    params = {
-        "encryption": "none", "type": "ws",
-        "host": VLESS_CONFIG['host'], "path": quote(VLESS_CONFIG['path'])
-    }
+    if ws_host:
+        params["host"] = ws_host
     
+    # 路径参数处理：直接使用，因为 parse_qs 已经解码了
+    # 我们用 quote 重新编码，但指定安全字符，防止双重编码
+    params["path"] = quote(ws_path, safe='/?&=')
+
     if protocol_type == "TLS":
-        params.update({"security": "tls", "sni": VLESS_CONFIG['sni'], "fp": "randomized"})
+        params["security"] = "tls"
+        if sni:
+            params["sni"] = sni
+        params["fp"] = "randomized"
     else: # HTTP
         params["security"] = "none"
 
-    param_str = "&".join([f"{k}={v}" for k, v in params.items()])
+    param_str = "&".join([f"{k}={v}" for k, v in params.items() if v is not None])
     node_name = quote(f"{protocol_type}-{address_info['counter']}-{name_suffix}")
     
-    return f"{base_url}{param_str}#{node_name}"
+    return f"vless://{uuid}@{addr}:{port}?{param_str}#{node_name}"
 
 def fetch_from_file(file_path):
     """从本地文件读取地址列表"""
@@ -89,6 +107,7 @@ def fetch_from_file(file_path):
 
 def fetch_simple_ips(url):
     """从URL获取简单的IP列表"""
+    if not url: return []
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
@@ -101,6 +120,7 @@ def fetch_simple_ips(url):
 
 def fetch_dynamic_ips(url):
     """从 hostmonit 解析动态IP地址和ISP信息"""
+    if not url: return []
     print("🔄 正在从 hostmonit 获取动态IP...")
     try:
         response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -123,6 +143,7 @@ def fetch_dynamic_ips(url):
 
 def fetch_github_ips(url):
     """从 GitHub Raw URL 解析带自定义端口和名称的IP"""
+    if not url: return []
     print(f"🔄 正在从 GitHub 获取优选IP...")
     try:
         response = requests.get(url, timeout=10)
@@ -140,7 +161,7 @@ def fetch_github_ips(url):
         print(f"❌ GitHub: 获取优选IP失败: {e}")
         return []
 
-def generate_subscription():
+def main():
     """主函数，生成订阅文件"""
     if not parse_template(TEMPLATE_FILE):
         return
@@ -150,38 +171,40 @@ def generate_subscription():
 
     # --- 数据获取 ---
     print("\n--- 1. 获取所有节点地址 ---")
-    domains = fetch_from_file(DOMAINS_FILE)
-    simple_ips = fetch_simple_ips(REMOTE_IP_URL_1)
-    dynamic_ips = fetch_dynamic_ips(DYNAMIC_IP_URL)
-    github_ips = fetch_github_ips(GITHUB_IP_URL)
+    data_sources = [
+        ("domains", fetch_from_file(DOMAINS_FILE)),
+        ("simple_ips", fetch_simple_ips(REMOTE_IP_URL_1)),
+        ("dynamic_ips", fetch_dynamic_ips(DYNAMIC_IP_URL)),
+        ("github_ips", fetch_github_ips(GITHUB_IP_URL))
+    ]
 
     # --- 节点信息处理 ---
     print("\n--- 2. 处理节点信息 ---")
-    # A. 固定域名 (HTTP + TLS)
-    for domain in domains:
-        all_nodes_info.extend([
-            {"domain": domain, "protocol": "TLS", "counter": counter},
-            {"domain": domain, "port": 80, "protocol": "HTTP", "counter": counter + 1}
-        ])
-        counter += 2
-
-    # B. 简单IP列表 (仅TLS)
-    for ip in simple_ips:
-        all_nodes_info.append({"ip": ip, "protocol": "TLS", "counter": counter})
-        counter += 1
-
-    # C. 动态IP (HTTP + TLS)
-    for item in dynamic_ips:
-        all_nodes_info.extend([
-            {"ip": item["ip"], "port": 443, "protocol": "TLS", "name": item["name"], "counter": counter},
-            {"ip": item["ip"], "port": 80, "protocol": "HTTP", "name": item["name"], "counter": counter + 1}
-        ])
-        counter += 2
-
-    # D. GitHub优选IP (自定义端口, 仅TLS)
-    for item in github_ips:
-        all_nodes_info.append({"ip": item["ip"], "port": item["port"], "protocol": "TLS", "name": item["name"], "counter": counter})
-        counter += 1
+    for source_type, data in data_sources:
+        if not data: continue
+        
+        if source_type == "domains":
+            for domain in data:
+                all_nodes_info.extend([
+                    {"domain": domain, "protocol": "TLS", "counter": counter},
+                    {"domain": domain, "port": 80, "protocol": "HTTP", "counter": counter + 1}
+                ])
+                counter += 2
+        elif source_type == "simple_ips":
+            for ip in data:
+                all_nodes_info.append({"ip": ip, "protocol": "TLS", "counter": counter})
+                counter += 1
+        elif source_type == "dynamic_ips":
+            for item in data:
+                all_nodes_info.extend([
+                    {"ip": item["ip"], "port": 443, "protocol": "TLS", "name": item["name"], "counter": counter},
+                    {"ip": item["ip"], "port": 80, "protocol": "HTTP", "name": item["name"], "counter": counter + 1}
+                ])
+                counter += 2
+        elif source_type == "github_ips":
+            for item in data:
+                all_nodes_info.append({"ip": item["ip"], "port": item["port"], "protocol": "TLS", "name": item["name"], "counter": counter})
+                counter += 1
 
     if not all_nodes_info:
         print("\n⚠️ 警告: 未能获取任何节点信息，无法生成订阅。")
@@ -189,7 +212,7 @@ def generate_subscription():
 
     # --- 生成链接和文件 ---
     print(f"\n🚀 开始为 {len(all_nodes_info)} 个节点生成链接...")
-    node_links = [generate_vless_url(info) for info in all_nodes_info]
+    node_links = [link for info in all_nodes_info if (link := generate_vless_url(info)) is not None]
     
     subscription_content = "\n".join(node_links)
     encoded_content = base64.b64encode(subscription_content.encode('utf-8')).decode('utf-8')
@@ -204,4 +227,4 @@ def generate_subscription():
         print(f"❌ 写入订阅文件时发生错误: {e}")
 
 if __name__ == "__main__":
-    generate_subscription()
+    main()
