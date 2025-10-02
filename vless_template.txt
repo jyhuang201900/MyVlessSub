@@ -1,0 +1,1 @@
+vless://fea141ca-3026-43fb-aae0-8f22ead516e8@[IP]:8443?encryption=none&security=tls&type=ws&host=[HOST]&sni=[HOST]&fp=random&path=%2F%3Fed%3D2560
