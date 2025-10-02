@@ -1,20 +1,13 @@
-# generate_sub.py
 import requests
 import base64
-import os
 from urllib.parse import quote
 
-# --- 配置信息 ---
-# Cloudflare IP来源，这个地址是公认比较好的
 CF_IP_URL = "https://raw.githubusercontent.com/XIU2/CloudflareSpeedTest/master/ip.txt"
 TEMPLATE_FILE = "vless_template.txt"
 DOMAINS_FILE = "domains.txt"
-# 输出目录和文件名，Cloudflare Pages 会直接使用这个目录
-OUTPUT_DIR = "public"  # 使用 public 目录，这是很多静态网站托管的惯例
-OUTPUT_FILE_NAME = "sub" # 最终订阅文件名
+OUTPUT_FILE_NAME = "sub.txt" # 直接在根目录生成名为 sub.txt 的文件
 
 def get_cf_ips():
-    """从URL获取Cloudflare IP列表"""
     print("正在获取最新的Cloudflare IP列表...")
     try:
         response = requests.get(CF_IP_URL, timeout=10)
@@ -27,12 +20,9 @@ def get_cf_ips():
         return []
 
 def generate_subscription():
-    """生成订阅文件"""
     try:
-        with open(TEMPLATE_FILE, 'r') as f:
-            template = f.read().strip()
-        with open(DOMAINS_FILE, 'r') as f:
-            domains = [line.strip() for line in f if line.strip()]
+        with open(TEMPLATE_FILE, 'r') as f: template = f.read().strip()
+        with open(DOMAINS_FILE, 'r') as f: domains = [line.strip() for line in f if line.strip()]
     except FileNotFoundError as e:
         print(f"错误：找不到文件 {e.filename}。")
         return
@@ -43,35 +33,22 @@ def generate_subscription():
         return
 
     all_nodes = []
-    node_count = 0
-
-    print(f"开始为 {len(domains)} 个域名和 {len(cf_ips)} 个IP生成节点...")
     for domain in domains:
         for ip in cf_ips:
             node_url = template.replace("[IP]", ip).replace("[HOST]", domain)
-            # 为节点生成一个可读的名称
             node_name = f"CF-{domain}-{ip}"
-            # URL编码节点名称，防止特殊字符问题
             encoded_node_name = quote(node_name)
             final_node_url = f"{node_url}#{encoded_node_name}"
             all_nodes.append(final_node_url)
-            node_count += 1
 
-    print(f"总共生成了 {node_count} 个节点配置。")
-
-    # 将所有节点链接用换行符合并，然后进行Base64编码
+    print(f"总共生成了 {len(all_nodes)} 个节点配置。")
     subscription_content = "\n".join(all_nodes)
     encoded_subscription = base64.b64encode(subscription_content.encode('utf-8')).decode('utf-8')
 
-    # 创建输出目录
-    if not os.path.exists(OUTPUT_DIR):
-        os.makedirs(OUTPUT_DIR)
-    
-    output_path = os.path.join(OUTPUT_DIR, OUTPUT_FILE_NAME)
-    with open(output_path, 'w') as f:
+    with open(OUTPUT_FILE_NAME, 'w') as f:
         f.write(encoded_subscription)
         
-    print(f"订阅文件已成功生成并保存到: {output_path}")
+    print(f"订阅文件已成功生成并保存到: {OUTPUT_FILE_NAME}")
 
 if __name__ == "__main__":
     generate_subscription()
