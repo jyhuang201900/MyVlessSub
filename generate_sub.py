@@ -10,7 +10,7 @@ TEMPLATE_FILE = "vless_template.txt"
 # 本地优选域名文件路径
 DOMAINS_FILE = "domains.txt"
 # 生成的订阅文件名
-OUTPUT_FILE = "sub.txt"
+OUTPUT_FILE = "sub1.txt"
 # 固定的SNI和HOST值
 FIXED_SNI_HOST = "bui.2514376.xyz"
 
