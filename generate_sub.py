@@ -24,13 +24,26 @@ DYNAMIC_IP_URL = "https://stock.hostmonit.com/CloudFlareYes"
 GITHUB_IP_URL = "https://raw.githubusercontent.com/qwer-search/bestip/refs/heads/main/kejilandbestip.txt"
 # --- 配置区结束 ---
 
+def ensure_punycode(domain):
+    """确保域名使用正确的 punycode 编码（用于国际化域名）"""
+    try:
+        # 如果域名包含非ASCII字符，转换为punycode
+        # 如果已经是punycode或纯ASCII，则保持不变
+        return domain.encode('ascii').decode('ascii')
+    except UnicodeEncodeError:
+        # 包含非ASCII字符，需要转换为punycode
+        return domain.encode('idna').decode('ascii')
+    except:
+        return domain
+
 def fetch_from_file(file_path):
     """从本地文件读取地址列表"""
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             lines = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
             print(f"✅ 从本地文件 {file_path} 获取 {len(lines)} 个域名。")
-            return [{"address": line, "name_suffix": line} for line in lines]
+            # 确保域名使用正确的编码
+            return [{"address": ensure_punycode(line), "name_suffix": line} for line in lines]
     except FileNotFoundError:
         print(f"❌ 错误: 找不到文件 {file_path}")
         return []
@@ -155,13 +168,13 @@ def generate_subscription():
             # 域名或纯IP (添加默认端口443)
             server_address = f"{address}:443"
             
-        # 构建VLESS链接
+        # 构建VLESS链接（地址部分保持原样，不进行编码）
         link = f"vless://{uuid}@{server_address}?{params}"
         
-        # 生成节点名称（删除 CF-Node-）
+        # 生成节点名称
         node_name = f"{name_suffix}"
         
-        # 添加节点名称并进行URL编码
+        # 只对节点名称（#后面的备注）进行URL编码
         final_link = f"{link}#{quote(node_name)}"
         node_links.append(final_link)
 
