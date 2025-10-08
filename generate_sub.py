@@ -27,18 +27,10 @@ GITHUB_IP_URL = "https://raw.githubusercontent.com/qwer-search/bestip/refs/heads
 def fetch_from_file(file_path):
     """从本地文件读取地址列表"""
     try:
-        # 使用 latin-1 编码读取，保持原始字节内容
-        with open(file_path, 'r', encoding='latin-1') as f:
-            content = f.read()
-        # 尝试解码为 UTF-8，如果失败则保持原样
-        try:
-            content = content.encode('latin-1').decode('utf-8')
-        except:
-            pass
-        
-        lines = [line.strip() for line in content.splitlines() if line.strip() and not line.strip().startswith('#')]
-        print(f"✅ 从本地文件 {file_path} 获取 {len(lines)} 个域名。")
-        return [{"address": line, "name_suffix": line} for line in lines]
+        with open(file_path, 'r', encoding='utf-8') as f:
+            lines = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
+            print(f"✅ 从本地文件 {file_path} 获取 {len(lines)} 个域名。")
+            return [{"address": line, "name_suffix": line} for line in lines]
     except FileNotFoundError:
         print(f"❌ 错误: 找不到文件 {file_path}")
         return []
@@ -46,10 +38,8 @@ def fetch_from_file(file_path):
 def fetch_simple_ips(url):
     """从URL获取简单的IP列表"""
     try:
-        # 获取原始字节内容
         response = requests.get(url, timeout=10)
         response.raise_for_status()
-        # 使用 response.text 但确保不进行 IDN 解码
         lines = [line.strip() for line in response.text.splitlines() if line.strip() and not line.strip().startswith('#')]
         print(f"✅ 从 URL {url.split('/')[-1]} 获取 {len(lines)} 个IP。")
         return [{"address": line, "name_suffix": line} for line in lines]
@@ -107,35 +97,29 @@ def generate_subscription():
     """主函数，生成订阅文件"""
     # 1. 读取VLESS模板并提取UUID和其他参数
     try:
-        # 使用 latin-1 读取模板文件
-        with open(TEMPLATE_FILE, 'r', encoding='latin-1') as f:
+        with open(TEMPLATE_FILE, 'r', encoding='utf-8') as f:
             vless_template = f.read().strip()
-        # 尝试转换为 UTF-8
-        try:
-            vless_template = vless_template.encode('latin-1').decode('utf-8')
-        except:
-            pass
             
-        # 从模板中提取UUID
-        uuid_match = re.search(r'vless://([^@]+)@', vless_template)
-        uuid = uuid_match.group(1) if uuid_match else ""
-        
-        # 提取查询参数部分
-        params_match = re.search(r'\?(.+)', vless_template)
-        params = params_match.group(1) if params_match else ""
-        
-        # 确保params中包含sni和host参数，如果没有就添加
-        if "host=" not in params:
-            params = params.rstrip("#") + f"&host={FIXED_SNI_HOST}"
-        else:
-            # 替换host参数
-            params = re.sub(r'host=[^&]+', f'host={FIXED_SNI_HOST}', params)
+            # 从模板中提取UUID
+            uuid_match = re.search(r'vless://([^@]+)@', vless_template)
+            uuid = uuid_match.group(1) if uuid_match else ""
             
-        if "sni=" not in params:
-            params = params.rstrip("#") + f"&sni={FIXED_SNI_HOST}"
-        else:
-            # 替换sni参数
-            params = re.sub(r'sni=[^&]+', f'sni={FIXED_SNI_HOST}', params)
+            # 提取查询参数部分
+            params_match = re.search(r'\?(.+)', vless_template)
+            params = params_match.group(1) if params_match else ""
+            
+            # 确保params中包含sni和host参数，如果没有就添加
+            if "host=" not in params:
+                params = params.rstrip("#") + f"&host={FIXED_SNI_HOST}"
+            else:
+                # 替换host参数
+                params = re.sub(r'host=[^&]+', f'host={FIXED_SNI_HOST}', params)
+                
+            if "sni=" not in params:
+                params = params.rstrip("#") + f"&sni={FIXED_SNI_HOST}"
+            else:
+                # 替换sni参数
+                params = re.sub(r'sni=[^&]+', f'sni={FIXED_SNI_HOST}', params)
                 
     except FileNotFoundError:
         print(f"❌ 致命错误: 找不到模板文件 {TEMPLATE_FILE}。程序已终止。")
@@ -171,22 +155,21 @@ def generate_subscription():
             # 域名或纯IP (添加默认端口443)
             server_address = f"{address}:443"
             
-        # 构建VLESS链接 - 确保地址部分不被编码
+        # 构建VLESS链接
         link = f"vless://{uuid}@{server_address}?{params}"
         
-        # 生成节点名称
+        # 生成节点名称（删除 CF-Node-）
         node_name = f"{name_suffix}"
         
-        # 只对节点名称进行URL编码，地址部分保持原样
+        # 添加节点名称并进行URL编码
         final_link = f"{link}#{quote(node_name)}"
         node_links.append(final_link)
 
     print(f"🎉 总共生成了 {len(node_links)} 个节点。")
 
-    # 4. Base64编码并写入文件 - 使用 ASCII 编码处理
+    # 4. Base64编码并写入文件
     subscription_content = "\n".join(node_links)
-    # 先编码为字节，再进行 Base64 编码
-    encoded_content = base64.b64encode(subscription_content.encode('utf-8')).decode('ascii')
+    encoded_content = base64.b64encode(subscription_content.encode('utf-8')).decode('utf-8')
 
     try:
         with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
