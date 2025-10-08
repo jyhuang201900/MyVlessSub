@@ -158,8 +158,8 @@ def generate_subscription():
         # 构建VLESS链接
         link = f"vless://{uuid}@{server_address}?{params}"
         
-        # 生成节点名称
-        node_name = f"CF-Node-{i+1:03d}-{name_suffix}"
+        # 生成节点名称（删除 CF-Node-）
+        node_name = f"{name_suffix}"
         
         # 添加节点名称并进行URL编码
         final_link = f"{link}#{quote(node_name)}"
