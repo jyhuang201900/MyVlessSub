@@ -27,7 +27,7 @@ jobs:
           pip install requests beautifulsoup4 lxml
       
       - name: Run script to generate subscription
-        run: python generate_sub.py
+        run: python g
 
       - name: Commit and push if changed
         uses: stefanzweifel/git-auto-commit-action@v5
