@@ -1,66 +1,19 @@
 import requests
 import base64
 import re
-import socket
 from urllib.parse import quote
 from bs4 import BeautifulSoup
-import time
 
 # --- 配置区 ---
-TEMPLATE_FILE = "vless_template.txt"
-DOMAINS_FILE = "domains.txt"
-OUTPUT_FILE = "sub.txt"
-FIXED_SNI_HOST = "bui.2514376.xyz"
+TEMPLATE_FILE = "vless_template.txt"   # VLESS 模板文件路径
+DOMAINS_FILE = "domains.txt"           # 本地优选域名文件路径
+OUTPUT_FILE = "sub.txt"                # 生成的订阅文件名
+FIXED_SNI_HOST = "bui.2514376.xyz"     # 固定的 SNI 和 HOST 值
 
 REMOTE_IP_URL_1 = "https://raw.githubusercontent.com/barry-far/V2ray-Configs/main/All_IPs_port_443.txt"
 DYNAMIC_IP_URL = "https://stock.hostmonit.com/CloudFlareYes"
 GITHUB_IP_URL = "https://raw.githubusercontent.com/qwer-search/bestip/refs/heads/main/kejilandbestip.txt"
-
-# 地理位置缓存
-GEO_CACHE = {}
 # --- 配置区结束 ---
-
-def get_domain_location(domain):
-    """通过域名获取地理位置"""
-    # 如果已缓存，直接返回
-    if domain in GEO_CACHE:
-        return GEO_CACHE[domain]
-    
-    try:
-        # 1. 解析域名为IP
-        ip = socket.gethostbyname(domain.split(':')[0])
-        
-        # 2. 使用免费的IP地理位置API
-        # 方案A: ip-api.com (免费，每分钟45次请求)
-        response = requests.get(f"http://ip-api.com/json/{ip}?lang=zh-CN", timeout=5)
-        
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('status') == 'success':
-                country = data.get('country', '未知')
-                city = data.get('city', '')
-                region = data.get('regionName', '')
-                
-                # 优先使用城市，否则使用地区，最后使用国家
-                location = city or region or country
-                
-                # 缓存结果
-                GEO_CACHE[domain] = location
-                print(f"  📍 {domain} -> {location}")
-                
-                # 避免API限流
-                time.sleep(0.1)
-                return location
-        
-        # 如果API失败，使用备用方案
-        print(f"  ⚠️  {domain} 位置查询失败，使用IP: {ip}")
-        GEO_CACHE[domain] = ip
-        return ip
-        
-    except Exception as e:
-        print(f"  ❌ {domain} 解析失败: {e}")
-        GEO_CACHE[domain] = domain
-        return domain
 
 def fetch_from_file(file_path):
     """从本地文件读取地址列表"""
@@ -68,14 +21,7 @@ def fetch_from_file(file_path):
         with open(file_path, 'r', encoding='utf-8') as f:
             lines = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
             print(f"✅ 从本地文件 {file_path} 获取 {len(lines)} 个域名。")
-            
-            # 批量解析地理位置
-            results = []
-            for line in lines:
-                location = get_domain_location(line)
-                results.append({"address": line, "name_suffix": location})
-            
-            return results
+            return [{"address": line, "name_suffix": line} for line in lines]
     except FileNotFoundError:
         print(f"❌ 错误: 找不到文件 {file_path}")
         return []
@@ -86,10 +32,10 @@ def fetch_simple_ips(url):
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         lines = [line.strip() for line in response.text.splitlines() if line.strip() and not line.strip().startswith('#')]
-        print(f"✅ 从 URL {url.split('/')[-1]} 获取 {len(lines)} 个IP。")
+        print(f"✅ 从 {url} 获取 {len(lines)} 个IP。")
         return [{"address": line, "name_suffix": line} for line in lines]
     except requests.RequestException as e:
-        print(f"❌ 从 URL {url.split('/')[-1]} 获取IP失败: {e}")
+        print(f"❌ 获取 {url} 失败: {e}")
         return []
 
 def fetch_dynamic_ips(url):
@@ -116,8 +62,8 @@ def fetch_dynamic_ips(url):
         return []
 
 def fetch_github_ips(url):
-    """从 GitHub Raw URL 解析带自定义端口和名称的IP"""
-    print(f"🔄 正在从 GitHub 获取优选IP...")
+    """从 GitHub 解析带端口和名称的IP"""
+    print("🔄 正在从 GitHub 获取优选IP...")
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
@@ -139,7 +85,7 @@ def fetch_github_ips(url):
         return []
 
 def generate_subscription():
-    """主函数，生成订阅文件"""
+    """生成订阅文件"""
     try:
         with open(TEMPLATE_FILE, 'r', encoding='utf-8') as f:
             vless_template = f.read().strip()
@@ -173,13 +119,12 @@ def generate_subscription():
     all_nodes = domains + simple_ips + dynamic_ips + github_ips
   
     if not all_nodes:
-        print("\n⚠️ 警告: 未能获取任何地址信息，无法生成订阅。")
+        print("⚠️ 未能获取任何地址信息，无法生成订阅。")
         return
 
-    node_links = []
     print("\n🚀 开始生成节点链接...")
-    
-    for i, node in enumerate(all_nodes):
+    node_links = []
+    for i, node in enumerate(all_nodes, start=1):  # 从1开始编号
         address = node["address"]
         name_suffix = node.get("name_suffix", address)
         
@@ -189,8 +134,9 @@ def generate_subscription():
             server_address = f"{address}:443"
             
         link = f"vless://{uuid}@{server_address}?{params}"
-        node_name = f"CF-{name_suffix}-{i+1:03d}"
         
+        # 保留原来代码2的命名方式 + 序号
+        node_name = f"{name_suffix}-{i:03d}"  # 三位序号，比如 -001
         final_link = f"{link}#{quote(node_name)}"
         node_links.append(final_link)
 
@@ -202,7 +148,7 @@ def generate_subscription():
     try:
         with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
             f.write(encoded_content)
-        print(f"\n✨ 订阅文件已成功生成！✨\n   文件名: {OUTPUT_FILE}\n")
+        print(f"✨ 订阅文件已成功生成！ 文件名: {OUTPUT_FILE}")
     except Exception as e:
         print(f"❌ 写入订阅文件时发生错误: {e}")
 
